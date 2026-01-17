@@ -1,16 +1,18 @@
 #!/bin/bash
 
-#############################################
-#   VPS 初始化脚本（混合模式：非关键步骤容错）
-#############################################
+# VPS 初始化脚本
 
-set -e  # 关键步骤失败立即退出
-ERRORS=()  # 用于记录非关键步骤错误
+set -e
+ERRORS=()
 
 # --- 可配置变量 ---
 KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHU4I+uqyj6l254xb2LjyO/STXpf2m0lraFGf/8MPFUq"
 APP="screen apt-transport-https ca-certificates zstd mc curl zip unzip nano"
 ALIASES_URL="https://raw.githubusercontent.com/petcat/my.config/refs/heads/master/ssh/.my_aliases"
+
+# 禁用 systemctl 分页器，防止子脚本卡住
+export SYSTEMD_PAGER=
+export SYSTEMD_PAGERSECURE=1
 
 echo "开始 VPS 初始化..."
 
@@ -27,15 +29,15 @@ fi
 echo "检测到系统: $OS"
 
 #############################################
-# 1. 系统更新（不升级内核）
+# 1. 系统更新（关键步骤，不升级内核）
 #############################################
 echo "更新系统（不升级内核）..."
 apt update
-# hold 内核相关包，避免升级
-apt-mark hold 'linux-image-*' 'linux-headers-*' 'linux-modules-*' || true
+apt-mark hold 'linux-image-*' 'linux-headers-*' 'linux-modules-*' >/dev/null 2>&1 || true
 apt upgrade -y
+
 #############################################
-# 2. 安装软件
+# 2. 安装软件（关键步骤）
 #############################################
 echo "安装软件: $APP"
 apt install -y $APP
@@ -46,7 +48,7 @@ if ! command -v wget >/dev/null 2>&1 && ! command -v curl >/dev/null 2>&1; then
 fi
 
 #############################################
-# 3. SSH 密钥配置
+# 3. SSH 密钥配置（关键步骤）
 #############################################
 if [ -n "$KEY" ]; then
     echo "配置 SSH 密钥认证..."
@@ -59,25 +61,42 @@ if [ -n "$KEY" ]; then
     chmod 600 "$SSH_DIR/authorized_keys"
 
     SSH_CONFIG_FILE="/etc/ssh/sshd_config"
-    cp "$SSH_CONFIG_FILE" "${SSH_CONFIG_FILE}.bak"
 
-    sed -i 's/^#*PubkeyAuthentication.*/PubkeyAuthentication yes/' "$SSH_CONFIG_FILE"
-    sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' "$SSH_CONFIG_FILE"
-    sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' "$SSH_CONFIG_FILE"
+    if [ -d /etc/ssh/sshd_config.d ]; then
+        # Ubuntu 22.04 等系统：使用覆盖文件
+        cat > /etc/ssh/sshd_config.d/99-disable-password.conf <<EOF
+PasswordAuthentication no
+PermitRootLogin yes
+PubkeyAuthentication yes
+EOF
+    else
+        # Debian 等系统：直接修改主配置文件
+        cp "$SSH_CONFIG_FILE" "${SSH_CONFIG_FILE}.bak"
+        sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' "$SSH_CONFIG_FILE"
+        sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' "$SSH_CONFIG_FILE"
+        sed -i 's/^#*PubkeyAuthentication.*/PubkeyAuthentication yes/' "$SSH_CONFIG_FILE"
+    fi
 
-    # 自动检测 SSH 服务名
+    # 重启正确的 SSH 服务
     if systemctl list-unit-files | grep -q ssh.service; then
         systemctl restart ssh
     else
         systemctl restart sshd
     fi
 
+    # 验证配置是否生效
+    if sshd -T | grep -q "passwordauthentication no"; then
+        echo "SSH 已禁用密码登录，只允许密钥登录。"
+    else
+        echo "警告: SSH 配置未生效，请检查 /etc/ssh/sshd_config 或 /etc/ssh/sshd_config.d/ 文件。"
+        exit 1
+    fi
 else
     echo "警告: 未设置 SSH 公钥，跳过密钥配置。"
 fi
 
 #############################################
-# 4. 设置 .profile
+# 4. 设置 .profile（非关键步骤）
 #############################################
 echo "设置 .profile..."
 cat > /root/.profile << 'EOF'
@@ -98,7 +117,7 @@ PS1="\033[33m[\t]\033[32m\u@\h:\033[34m\w\033[0m#"
 EOF
 
 #############################################
-# 5. 下载 .my_aliases
+# 5. 下载 .my_aliases（关键步骤）
 #############################################
 if [ -n "$ALIASES_URL" ]; then
     echo "下载 .my_aliases..."
@@ -111,7 +130,7 @@ if [ -n "$ALIASES_URL" ]; then
 fi
 
 #############################################
-# 6. 启用 BBR
+# 6. 启用 BBR（非关键步骤）
 #############################################
 echo "启用 BBR..."
 kernel_version=$(uname -r | cut -d'-' -f1)
@@ -155,27 +174,6 @@ echo "配置 rsyslog..."
     fi
 } || ERRORS+=("rsyslog 配置失败")
 
-# logrotate
-echo "配置 logrotate..."
-{
-    cat > /etc/logrotate.d/vps_optimization << 'EOF'
-/var/log/syslog
-/var/log/auth.log
-/var/log/kern.log
-{
-    daily
-    rotate 3
-    compress
-    delaycompress
-    missingok
-    notifempty
-    maxsize 10M
-    copytruncate
-}
-EOF
-    logrotate -f /etc/logrotate.conf
-} || ERRORS+=("logrotate 执行失败")
-
 #############################################
 # 8. motd 替换（非关键步骤）
 #############################################
@@ -191,7 +189,7 @@ echo "执行其他脚本..."
 for script in "$SCRIPT_DIR"/*.sh; do
     [ "$script" = "$0" ] && continue
     chmod +x "$script"
-    ( "$script" ) || ERRORS+=("脚本 $script 执行失败")
+    ( SYSTEMD_PAGER= SYSTEMD_PAGERSECURE=1 "$script" ) || ERRORS+=("脚本 $script 执行失败")
 done
 
 #############################################
