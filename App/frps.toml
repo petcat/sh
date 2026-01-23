@@ -1,0 +1,14 @@
+# frps.toml 
+bindPort = 15808
+bindAddr = "::"
+auth.token = "123.456.789"
+
+# 面板端口和密码
+webServer.addr = "::"
+webServer.port = 15809
+webServer.user = "aming"
+webServer.password = "K7078608Ddef3418"
+
+# 取消日志输出（不写文件）
+log.to = "console"
+log.level = "info"
