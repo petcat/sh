@@ -6,16 +6,16 @@
 
 set -euo pipefail
 
-REPO="fatedier/frp"
 FRPS_DIR="/opt/frps"
+REPO="fatedier/frp"
 
-# ===== 获取最新版本号 =====
+# 获取最新版本号
 get_latest_release() {
     curl -s https://api.github.com/repos/$REPO/releases/latest \
     | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/'
 }
 
-# ===== 下载并安装 frps =====
+# 安装 frps
 install_frps() {
     mkdir -p "$FRPS_DIR"
     cd "$FRPS_DIR"
@@ -28,14 +28,24 @@ install_frps() {
     tar -xzf frp.tar.gz --strip-components=1
     rm -f frp.tar.gz
 
-    # 默认配置
-    if [[ ! -f "$FRPS_DIR/frps.ini" ]]; then
-        cat > "$FRPS_DIR/frps.ini" <<EOF
-[common]
-bind_port = 7000
-dashboard_port = 7500
-dashboard_user = admin
-dashboard_pwd = admin
+    # 生成 TOML 配置
+    if [[ ! -f "$FRPS_DIR/frps.toml" ]]; then
+        cat > "$FRPS_DIR/frps.toml" <<EOF
+bindPort = 15808
+bindAddr = "::"
+
+[auth]
+token = "12304560789"
+
+[webServer]
+addr = "::"
+port = 15809
+user = "aming"
+password = "12304560789"
+
+[log]
+to = "console"
+level = "info"
 EOF
     fi
 
@@ -46,7 +56,7 @@ Description=frps service
 After=network.target
 
 [Service]
-ExecStart=$FRPS_DIR/frps -c $FRPS_DIR/frps.ini
+ExecStart=$FRPS_DIR/frps -c $FRPS_DIR/frps.toml
 Restart=always
 User=nobody
 LimitNOFILE=65535
@@ -61,14 +71,14 @@ EOF
     echo "frps 已安装并启动"
 }
 
-# ===== 升级 frps =====
+# 升级 frps
 upgrade_frps() {
     echo "开始升级 frps..."
     install_frps
     echo "frps 已升级到最新版本"
 }
 
-# ===== 配置定时更新 =====
+# 配置定时更新
 setup_timer() {
     # 升级 service
     cat > /etc/systemd/system/frps-up.service <<EOF
@@ -99,7 +109,7 @@ EOF
     echo "frps 每月自动升级已配置完成"
 }
 
-# ===== 主逻辑 =====
+# 主逻辑
 if [[ "${1:-}" == "-up" ]]; then
     upgrade_frps
 else
