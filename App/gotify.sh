@@ -27,14 +27,18 @@ detect_os() {
     fi
 }
 
-# 获取下载 URL
+# 获取最新版本号并拼接下载 URL
 get_gotify_url() {
     arch=$(detect_arch)
     if [ "$arch" = "unsupported" ]; then
         echo "[!] 不支持的架构: $(uname -m)"
         exit 1
     fi
-    echo "https://github.com/gotify/server/releases/latest/download/gotify-linux-${arch}.tar.gz"
+
+    latest=$(curl -s https://api.github.com/repos/gotify/server/releases/latest \
+             | grep tag_name | cut -d '"' -f4)
+
+    echo "https://github.com/gotify/server/releases/download/${latest}/gotify-linux-${arch}-${latest}.tar.gz"
 }
 
 install_gotify() {
