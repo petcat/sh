@@ -98,6 +98,8 @@ User=nobody
 [Install]
 WantedBy=multi-user.target
 EOF
+
+    # 建立软链接
     sudo ln -sf "$APP_DIR/gotify.service" /etc/systemd/system/gotify.service
 
     sudo systemctl daemon-reload
@@ -119,7 +121,9 @@ upgrade_gotify() {
 
 install_timer() {
     echo "[*] 安装 systemd timer..."
+    sudo mkdir -p "$APP_DIR"
 
+    # 升级 service 文件
     sudo tee "$APP_DIR/gotify-update.service" > /dev/null <<EOF
 [Unit]
 Description=Gotify Monthly Upgrade
@@ -129,6 +133,7 @@ Type=oneshot
 ExecStart=$APP_DIR/gotify.sh -up
 EOF
 
+    # 定时器文件
     sudo tee "$APP_DIR/gotify-update.timer" > /dev/null <<EOF
 [Unit]
 Description=Monthly Gotify Upgrade
@@ -141,6 +146,7 @@ Persistent=true
 WantedBy=timers.target
 EOF
 
+    # 建立软链接
     sudo ln -sf "$APP_DIR/gotify-update.service" /etc/systemd/system/gotify-update.service
     sudo ln -sf "$APP_DIR/gotify-update.timer" /etc/systemd/system/gotify-update.timer
 
