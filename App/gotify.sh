@@ -27,7 +27,7 @@ detect_os() {
     fi
 }
 
-# 获取最新版本号并拼接下载 URL
+# 获取最新版本号并拼接 zip 下载 URL
 get_gotify_url() {
     arch=$(detect_arch)
     if [ "$arch" = "unsupported" ]; then
@@ -38,7 +38,7 @@ get_gotify_url() {
     latest=$(curl -s https://api.github.com/repos/gotify/server/releases/latest \
              | grep tag_name | cut -d '"' -f4)
 
-    echo "https://github.com/gotify/server/releases/download/${latest}/gotify-linux-${arch}-${latest}.tar.gz"
+    echo "https://github.com/gotify/server/releases/download/${latest}/gotify-linux-${arch}.zip"
 }
 
 install_gotify() {
@@ -46,7 +46,10 @@ install_gotify() {
     url=$(get_gotify_url)
     echo "[*] 安装 Gotify ($url)"
     sudo mkdir -p "$BASE_DIR"
-    curl -L "$url" | sudo tar -xz -C "$BASE_DIR"
+    tmpdir=$(mktemp -d)
+    curl -L -o "$tmpdir/gotify.zip" "$url"
+    sudo unzip -o "$tmpdir/gotify.zip" -d "$BASE_DIR"
+    rm -rf "$tmpdir"
 
     # 默认配置
     if [ ! -f "$BASE_DIR/config.yml" ]; then
@@ -106,10 +109,10 @@ upgrade_gotify() {
     url=$(get_gotify_url)
     echo "[*] 升级 Gotify ($url)"
     tmpdir=$(mktemp -d)
-    curl -L "$url" | tar -xz -C "$tmpdir"
-    sudo cp "$tmpdir/gotify-linux-$(detect_arch)" "$BASE_DIR/"
-    sudo systemctl restart gotify.service
+    curl -L -o "$tmpdir/gotify.zip" "$url"
+    sudo unzip -o "$tmpdir/gotify.zip" -d "$BASE_DIR"
     rm -rf "$tmpdir"
+    sudo systemctl restart gotify.service
     echo "[+] Gotify 已升级并重启"
 }
 
