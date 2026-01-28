@@ -1,23 +1,24 @@
 import base64
 import yaml
-import re
 
 TEMPLATE = "template.yaml"
 OUTPUT = "config.yaml"
 SS_FILE = "ss.txt"
 
 def parse_ss_link(link):
-    # ss://base64(method:password@server:port)#name
     if not link.startswith("ss://"):
         return None
-
     link = link[5:]
     if "#" in link:
         link, name = link.split("#", 1)
     else:
         name = "SS"
 
-    decoded = base64.urlsafe_b64decode(link + "===").decode()
+    try:
+        decoded = base64.urlsafe_b64decode(link + "===").decode()
+    except Exception:
+        return None
+
     method, rest = decoded.split(":", 1)
     password, rest = rest.split("@", 1)
     server, port = rest.split(":", 1)
@@ -28,7 +29,8 @@ def parse_ss_link(link):
         "server": server,
         "port": int(port),
         "cipher": method,
-        "password": password
+        "password": password,
+        "udp": True
     }
 
 def load_template():
@@ -50,11 +52,24 @@ def main():
                 proxies.append(node)
                 names.append(node["name"])
 
-    config["proxies"] = proxies
-    config["proxy-groups"][0]["proxies"] = names
+    # 手动拼接单行 { } 格式
+    proxy_lines = []
+    for node in proxies:
+        line = "  - { " + ", ".join(f"{k}: {v}" for k, v in node.items()) + " }"
+        proxy_lines.append(line)
 
+    # 写入最终文件
     with open(OUTPUT, "w") as f:
-        yaml.dump(config, f, allow_unicode=True)
+        f.write("proxies:\n")
+        for line in proxy_lines:
+            f.write(line + "\n")
+
+        f.write("\nproxy-groups:\n")
+        f.write("  - name: Proxy\n")
+        f.write("    type: select\n")
+        f.write("    proxies:\n")
+        for name in names:
+            f.write(f"      - {name}\n")
 
     print(f"生成完成：{OUTPUT}")
 
